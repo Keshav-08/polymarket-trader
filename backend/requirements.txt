@@ -11,3 +11,6 @@ pydantic==2.7.1
 pydantic-settings==2.2.1
 yfinance==0.2.40
 pytz==2024.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9

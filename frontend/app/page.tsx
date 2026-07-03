@@ -4,9 +4,11 @@ import { useEffect, useState, useRef } from "react";
 import {
   Activity, TrendingUp, TrendingDown, Zap, Circle,
   Minus, RefreshCw, AlertTriangle, Settings, CheckCircle,
-  Bell, Search, Pin, X, Clock
+  Bell, Search, Pin, X, Clock, LogOut
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const POLL_INTERVAL = 30_000;
@@ -59,23 +61,16 @@ const SORTS = [
   { value: "shift", label: "Signal Strength" },
 ];
 
-// ── Market hours logic (all in browser, ET timezone) ──────────────────────────
-function getMarketStatus(): {
-  isOpen: boolean;
-  label: string;
-  countdown: string;
-  nextEvent: string;
-} {
+function getMarketStatus(): { isOpen: boolean; label: string; countdown: string; nextEvent: string; } {
   const now = new Date();
   const etNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = etNow.getDay(); // 0=Sun, 6=Sat
+  const day = etNow.getDay();
   const hours = etNow.getHours();
   const minutes = etNow.getMinutes();
   const seconds = etNow.getSeconds();
   const totalMinutes = hours * 60 + minutes;
-
-  const OPEN = 9 * 60 + 30;   // 9:30 AM
-  const CLOSE = 16 * 60;       // 4:00 PM
+  const OPEN = 9 * 60 + 30;
+  const CLOSE = 16 * 60;
   const isWeekday = day >= 1 && day <= 5;
   const isOpen = isWeekday && totalMinutes >= OPEN && totalMinutes < CLOSE;
 
@@ -89,67 +84,33 @@ function getMarketStatus(): {
   }
 
   if (isOpen) {
-    // Time until close
     const closeSeconds = (CLOSE - totalMinutes) * 60 - seconds;
-    return {
-      isOpen: true,
-      label: "Market Open",
-      countdown: formatCountdown(closeSeconds),
-      nextEvent: "closes in",
-    };
-  } else {
-    // Time until next open
-    let daysUntilOpen = 0;
-    let targetDay = day;
-
-    if (isWeekday && totalMinutes < OPEN) {
-      // Before open today
-      const openSeconds = (OPEN - totalMinutes) * 60 - seconds;
-      return {
-        isOpen: false,
-        label: "Pre-Market",
-        countdown: formatCountdown(openSeconds),
-        nextEvent: "opens in",
-      };
-    }
-
-    // After close or weekend — find next Monday or tomorrow
-    if (day === 5 || day === 6 || day === 0) {
-      // Friday after close, Saturday, Sunday
-      daysUntilOpen = day === 5 ? 3 : day === 6 ? 2 : 1;
-    } else {
-      // Weekday after close
-      daysUntilOpen = 1;
-    }
-
-    const secondsUntilMidnight = (24 - hours) * 3600 - minutes * 60 - seconds;
-    const secondsFromMidnightToOpen = OPEN * 60;
-    const totalSeconds = secondsUntilMidnight + (daysUntilOpen - 1) * 86400 + secondsFromMidnightToOpen;
-
-    return {
-      isOpen: false,
-      label: day === 6 || day === 0 || (day === 5 && totalMinutes >= CLOSE) ? "Weekend" : "After Hours",
-      countdown: formatCountdown(totalSeconds),
-      nextEvent: "opens in",
-    };
+    return { isOpen: true, label: "Market Open", countdown: formatCountdown(closeSeconds), nextEvent: "closes in" };
   }
+
+  if (isWeekday && totalMinutes < OPEN) {
+    const openSeconds = (OPEN - totalMinutes) * 60 - seconds;
+    return { isOpen: false, label: "Pre-Market", countdown: formatCountdown(openSeconds), nextEvent: "opens in" };
+  }
+
+  const daysUntilOpen = day === 5 ? 3 : day === 6 ? 2 : day === 0 ? 1 : 1;
+  const secondsUntilMidnight = (24 - hours) * 3600 - minutes * 60 - seconds;
+  const totalSeconds = secondsUntilMidnight + (daysUntilOpen - 1) * 86400 + OPEN * 60;
+  const label = day === 6 || day === 0 || (day === 5 && totalMinutes >= CLOSE) ? "Weekend" : "After Hours";
+  return { isOpen: false, label, countdown: formatCountdown(totalSeconds), nextEvent: "opens in" };
 }
 
 function MarketHoursIndicator() {
   const [status, setStatus] = useState(getMarketStatus());
-
   useEffect(() => {
     const t = setInterval(() => setStatus(getMarketStatus()), 1000);
     return () => clearInterval(t);
   }, []);
-
   return (
     <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono ${
-      status.isOpen
-        ? "border-[#00C48C]/30 bg-[#00C48C]/10 text-[#00C48C]"
-        : status.label === "Pre-Market"
-        ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-        : "border-[#30363D] bg-[#0D1117] text-[#8B949E]"
+      status.isOpen ? "border-[#00C48C]/30 bg-[#00C48C]/10 text-[#00C48C]"
+      : status.label === "Pre-Market" ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+      : "border-[#30363D] bg-[#0D1117] text-[#8B949E]"
     }`}>
       <Clock size={10} />
       <span className="font-semibold">{status.label}</span>
@@ -169,11 +130,8 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function PnLCard({ label, value, sub, positive }: {
-  label: string; value: string; sub?: string; positive?: boolean;
-}) {
-  const color = positive === undefined ? "text-white"
-    : positive ? "text-[#00C48C]" : "text-red-400";
+function PnLCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean; }) {
+  const color = positive === undefined ? "text-white" : positive ? "text-[#00C48C]" : "text-red-400";
   return (
     <div className="bg-[#161B22] border border-[#30363D] rounded-xl p-5">
       <div className="text-[#8B949E] text-xs mb-2">{label}</div>
@@ -187,19 +145,13 @@ function ProbabilityBar({ value }: { value: number }) {
   const color = value >= 70 ? "#00C48C" : value >= 40 ? "#F59E0B" : "#EF4444";
   return (
     <div className="w-full bg-[#0D1117] rounded-full h-1 mt-2">
-      <div className="h-1 rounded-full transition-all duration-700"
-        style={{ width: `${value}%`, backgroundColor: color }} />
+      <div className="h-1 rounded-full transition-all duration-700" style={{ width: `${value}%`, backgroundColor: color }} />
     </div>
   );
 }
 
-function MarketRow({ market, highlight, onPin }: {
-  market: Market; highlight: boolean; onPin: (id: string, pinned: boolean) => void;
-}) {
-  const probColor =
-    market.probability >= 70 ? "text-[#00C48C]" :
-    market.probability >= 40 ? "text-yellow-400" : "text-red-400";
-
+function MarketRow({ market, highlight, onPin }: { market: Market; highlight: boolean; onPin: (id: string, pinned: boolean) => void; }) {
+  const probColor = market.probability >= 70 ? "text-[#00C48C]" : market.probability >= 40 ? "text-yellow-400" : "text-red-400";
   const categoryColors: Record<string, string> = {
     politics: "text-blue-400 bg-blue-400/10",
     economics: "text-green-400 bg-green-400/10",
@@ -209,14 +161,11 @@ function MarketRow({ market, highlight, onPin }: {
     science: "text-cyan-400 bg-cyan-400/10",
     other: "text-[#8B949E] bg-[#8B949E]/10",
   };
-
   return (
     <div className={`p-4 rounded-lg border transition-all duration-300 group ${
-      market.pinned
-        ? "border-[#00C48C]/30 bg-[#00C48C]/5"
-        : highlight
-        ? "border-yellow-500/50 bg-yellow-500/5"
-        : "border-[#30363D] bg-[#0D1117]/40"
+      market.pinned ? "border-[#00C48C]/30 bg-[#00C48C]/5"
+      : highlight ? "border-yellow-500/50 bg-yellow-500/5"
+      : "border-[#30363D] bg-[#0D1117]/40"
     }`}>
       <div className="flex items-start gap-2 mb-1">
         <span className={`text-xs px-1.5 py-0.5 rounded font-mono shrink-0 ${categoryColors[market.category] || categoryColors.other}`}>
@@ -225,12 +174,10 @@ function MarketRow({ market, highlight, onPin }: {
         {market.pinned && <span className="text-xs text-[#00C48C] font-mono shrink-0">📌</span>}
         {highlight && (
           <span className="flex items-center gap-1 text-yellow-400 text-xs font-mono font-semibold">
-            <AlertTriangle size={10} />
-            +{market.shift?.toFixed(1)}%
+            <AlertTriangle size={10} />+{market.shift?.toFixed(1)}%
           </span>
         )}
-        <button
-          onClick={() => onPin(market.id, market.pinned)}
+        <button onClick={() => onPin(market.id, market.pinned)}
           className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-[#8B949E] hover:text-[#00C48C]"
           title={market.pinned ? "Unpin" : "Pin market"}>
           {market.pinned ? <X size={12} /> : <Pin size={12} />}
@@ -239,17 +186,12 @@ function MarketRow({ market, highlight, onPin }: {
       <div className="flex items-start justify-between gap-3">
         <p className="text-[#E6EDF3] text-sm leading-snug flex-1 line-clamp-2">{market.question}</p>
         <div className="text-right shrink-0">
-          <div className={`text-xl font-mono font-bold ${probColor}`}>
-            {market.probability.toFixed(1)}%
-          </div>
+          <div className={`text-xl font-mono font-bold ${probColor}`}>{market.probability.toFixed(1)}%</div>
           {market.shift !== null ? (
             <div className={`flex items-center justify-end gap-1 text-xs font-mono mt-0.5 ${
-              market.direction === "up" ? "text-[#00C48C]" :
-              market.direction === "down" ? "text-red-400" : "text-[#8B949E]"
+              market.direction === "up" ? "text-[#00C48C]" : market.direction === "down" ? "text-red-400" : "text-[#8B949E]"
             }`}>
-              {market.direction === "up" ? <TrendingUp size={14} /> :
-               market.direction === "down" ? <TrendingDown size={14} /> :
-               <Minus size={14} />}
+              {market.direction === "up" ? <TrendingUp size={14} /> : market.direction === "down" ? <TrendingDown size={14} /> : <Minus size={14} />}
               {market.shift > 0 ? "+" : ""}{market.shift.toFixed(1)}%
             </div>
           ) : (
@@ -263,6 +205,7 @@ function MarketRow({ market, highlight, onPin }: {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [pnlData, setPnlData] = useState<PnL | null>(null);
   const [marketsData, setMarketsData] = useState<MarketsResponse | null>(null);
@@ -275,11 +218,13 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [sort, setSort] = useState("volume");
+  const [username, setUsername] = useState("");
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const prevTradeIdsRef = useRef<Set<string>>(new Set());
   const firstLoadRef = useRef(true);
 
   useEffect(() => {
+    setUsername(localStorage.getItem("username") || "");
     if (typeof window === "undefined" || !("Notification" in window)) return;
     setNotifPermission(Notification.permission);
     if (Notification.permission === "default") {
@@ -287,12 +232,17 @@ export default function Dashboard() {
     }
   }, []);
 
+  async function handleLogout() {
+    try { await apiFetch("/api/auth/logout", { method: "POST" }); } catch {}
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    router.push("/login");
+  }
+
   function fireTradeNotification(trade: Trade) {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
-    const priceLabel = trade.filled_avg_price
-      ? `$${trade.filled_avg_price.toFixed(2)}`
-      : "market price";
+    const priceLabel = trade.filled_avg_price ? `$${trade.filled_avg_price.toFixed(2)}` : "market price";
     new Notification(`Trade Executed: ${trade.side?.toUpperCase()} ${trade.symbol}`, {
       body: `${trade.qty} shares @ ${priceLabel} — ${trade.status}`,
       icon: "/favicon.ico",
@@ -303,15 +253,13 @@ export default function Dashboard() {
   async function fetchMeta() {
     try {
       const [hRes, pRes, tRes, sRes] = await Promise.allSettled([
-        fetch(`${API}/api/health`),
-        fetch(`${API}/api/pnl`),
-        fetch(`${API}/api/trades`),
-        fetch(`${API}/api/settings`),
+        apiFetch("/api/health"),
+        apiFetch("/api/pnl"),
+        apiFetch("/api/trades"),
+        apiFetch("/api/settings"),
       ]);
-      if (hRes.status === "fulfilled" && hRes.value.ok)
-        setHealth(await hRes.value.json());
-      if (pRes.status === "fulfilled" && pRes.value.ok)
-        setPnlData(await pRes.value.json());
+      if (hRes.status === "fulfilled" && hRes.value.ok) setHealth(await hRes.value.json());
+      if (pRes.status === "fulfilled" && pRes.value.ok) setPnlData(await pRes.value.json());
 
       let notificationsEnabled = false;
       if (sRes.status === "fulfilled" && sRes.value.ok) {
@@ -347,7 +295,7 @@ export default function Dashboard() {
       if (search) params.set("search", search);
       if (category !== "all") params.set("category", category);
       params.set("sort", sort);
-      const r = await fetch(`${API}/api/markets?${params.toString()}`);
+      const r = await apiFetch(`/api/markets?${params.toString()}`);
       if (r.ok) {
         setMarketsData(await r.json());
         setLastUpdated(new Date());
@@ -373,9 +321,9 @@ export default function Dashboard() {
 
   async function handlePin(marketId: string, currentlyPinned: boolean) {
     if (currentlyPinned) {
-      await fetch(`${API}/api/markets/${marketId}/pin`, { method: "DELETE" });
+      await apiFetch(`/api/markets/${marketId}/pin`, { method: "DELETE" });
     } else {
-      await fetch(`${API}/api/markets/${marketId}/pin`, { method: "POST" });
+      await apiFetch(`/api/markets/${marketId}/pin`, { method: "POST" });
     }
     fetchMarkets();
   }
@@ -408,10 +356,7 @@ export default function Dashboard() {
             {notifPermission === "denied" && (
               <span className="text-red-400 text-xs" title="Notifications blocked">🔕 blocked</span>
             )}
-
-            {/* Market hours indicator */}
             <MarketHoursIndicator />
-
             <div className="flex items-center gap-1.5 text-[#8B949E]">
               <RefreshCw size={11} className={marketsLoading ? "animate-spin" : ""} />
               <span>refresh in {countdown}s</span>
@@ -431,6 +376,11 @@ export default function Dashboard() {
             <Link href="/settings" className="flex items-center gap-1.5 text-[#8B949E] hover:text-white transition-colors border border-[#30363D] hover:border-[#00C48C] px-3 py-1.5 rounded-lg">
               <Settings size={11} /> Settings
             </Link>
+            <button onClick={handleLogout}
+              title={username ? `Logged in as ${username}` : "Logout"}
+              className="flex items-center gap-1.5 text-[#8B949E] hover:text-red-400 transition-colors border border-[#30363D] hover:border-red-500 px-3 py-1.5 rounded-lg">
+              <LogOut size={11} /> Logout
+            </button>
           </div>
         </div>
       </header>
@@ -500,15 +450,10 @@ export default function Dashboard() {
           </div>
         ) : pnlData ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <PnLCard label="Portfolio Value"
-              value={`$${pnlData.portfolio_value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
-              sub="paper account" />
+            <PnLCard label="Portfolio Value" value={`$${pnlData.portfolio_value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`} sub="paper account" />
             <PnLCard label="Best Trade" value={`+$${pnlData.best_trade.toFixed(2)}`} positive={true} />
             <PnLCard label="Worst Trade" value={`$${pnlData.worst_trade.toFixed(2)}`} positive={pnlData.worst_trade >= 0} />
-            <PnLCard label="Avg Trade"
-              value={`${pnlData.avg_trade >= 0 ? "+" : ""}$${pnlData.avg_trade.toFixed(2)}`}
-              sub={`${pnlData.trade_count} closed trades`}
-              positive={pnlData.avg_trade >= 0} />
+            <PnLCard label="Avg Trade" value={`${pnlData.avg_trade >= 0 ? "+" : ""}$${pnlData.avg_trade.toFixed(2)}`} sub={`${pnlData.trade_count} closed trades`} positive={pnlData.avg_trade >= 0} />
           </div>
         ) : null}
 
@@ -517,9 +462,7 @@ export default function Dashboard() {
             marketsData.signal_count > 0 ? "border-yellow-500/40 bg-yellow-500/5" : "border-[#30363D] bg-[#161B22]"
           }`}>
             <div className="flex items-center gap-3">
-              {marketsData.signal_count > 0
-                ? <AlertTriangle size={15} className="text-yellow-400" />
-                : <Activity size={15} className="text-[#8B949E]" />}
+              {marketsData.signal_count > 0 ? <AlertTriangle size={15} className="text-yellow-400" /> : <Activity size={15} className="text-[#8B949E]" />}
               <span className="text-sm font-semibold text-white">
                 {marketsData.signal_count > 0
                   ? `${marketsData.signal_count} signal${marketsData.signal_count > 1 ? "s" : ""} detected`
@@ -533,8 +476,7 @@ export default function Dashboard() {
               )}
             </div>
             <span className="text-xs text-[#8B949E] font-mono">
-              {marketsData.total} markets watched
-              {lastUpdated && ` · ${lastUpdated.toLocaleTimeString()}`}
+              {marketsData.total} markets watched{lastUpdated && ` · ${lastUpdated.toLocaleTimeString()}`}
             </span>
           </div>
         )}
@@ -546,16 +488,11 @@ export default function Dashboard() {
               Live Markets
               {marketsLoading && <RefreshCw size={12} className="animate-spin text-[#8B949E] ml-1" />}
             </h3>
-
             <div className="space-y-2 mb-3">
               <div className="relative">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B949E]" />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search markets..."
-                  className="w-full bg-[#0D1117] border border-[#30363D] rounded-lg pl-8 pr-3 py-2 text-white text-xs focus:outline-none focus:border-[#00C48C] placeholder-[#8B949E]"
-                />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search markets..."
+                  className="w-full bg-[#0D1117] border border-[#30363D] rounded-lg pl-8 pr-3 py-2 text-white text-xs focus:outline-none focus:border-[#00C48C] placeholder-[#8B949E]" />
                 {search && (
                   <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8B949E] hover:text-white">
                     <X size={12} />
@@ -566,9 +503,7 @@ export default function Dashboard() {
                 {CATEGORIES.map(c => (
                   <button key={c.value} onClick={() => setCategory(c.value)}
                     className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
-                      category === c.value
-                        ? "bg-[#00C48C] text-black font-semibold"
-                        : "bg-[#0D1117] text-[#8B949E] hover:text-white border border-[#30363D]"
+                      category === c.value ? "bg-[#00C48C] text-black font-semibold" : "bg-[#0D1117] text-[#8B949E] hover:text-white border border-[#30363D]"
                     }`}>
                     {c.label}
                     {marketsData?.category_counts?.[c.value] && c.value !== "all" && (
@@ -582,9 +517,7 @@ export default function Dashboard() {
                 {SORTS.map(s => (
                   <button key={s.value} onClick={() => setSort(s.value)}
                     className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                      sort === s.value
-                        ? "text-white border border-[#00C48C]"
-                        : "text-[#8B949E] hover:text-white border border-[#30363D]"
+                      sort === s.value ? "text-white border border-[#00C48C]" : "text-[#8B949E] hover:text-white border border-[#30363D]"
                     }`}>
                     {s.label}
                   </button>
@@ -596,9 +529,7 @@ export default function Dashboard() {
               <div className="mb-3">
                 <p className="text-xs text-[#00C48C] font-mono mb-2">📌 Pinned</p>
                 <div className="space-y-2">
-                  {marketsData.pinned.map(m => (
-                    <MarketRow key={m.id} market={m} highlight={m.is_signal} onPin={handlePin} />
-                  ))}
+                  {marketsData.pinned.map(m => <MarketRow key={m.id} market={m} highlight={m.is_signal} onPin={handlePin} />)}
                 </div>
                 <div className="border-t border-[#30363D] mt-3 mb-3" />
               </div>
@@ -632,9 +563,7 @@ export default function Dashboard() {
                 <AlertTriangle size={16} className="text-yellow-400" />
                 Active Signals
                 {marketsData?.signal_count ? (
-                  <span className="ml-auto bg-yellow-500/20 text-yellow-400 text-xs font-mono px-2 py-0.5 rounded-full">
-                    {marketsData.signal_count}
-                  </span>
+                  <span className="ml-auto bg-yellow-500/20 text-yellow-400 text-xs font-mono px-2 py-0.5 rounded-full">{marketsData.signal_count}</span>
                 ) : null}
               </h3>
               {!marketsData || marketsData.signals.length === 0 ? (
@@ -644,17 +573,14 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {marketsData.signals.map(m => (
-                    <MarketRow key={m.id} market={m} highlight={true} onPin={handlePin} />
-                  ))}
+                  {marketsData.signals.map(m => <MarketRow key={m.id} market={m} highlight={true} onPin={handlePin} />)}
                 </div>
               )}
             </div>
 
             <div className="bg-[#161B22] border border-[#30363D] rounded-xl p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <TrendingUp size={16} className="text-[#00C48C]" />
-                Open Positions
+                <TrendingUp size={16} className="text-[#00C48C]" /> Open Positions
               </h3>
               {!pnlData || pnlData.positions.length === 0 ? (
                 <p className="text-[#8B949E] text-sm text-center py-4">No open positions</p>
@@ -668,9 +594,7 @@ export default function Dashboard() {
                         <span className="text-[#8B949E] text-xs ml-2">@ ${p.avg_entry_price.toFixed(2)}</span>
                       </div>
                       <div className="text-right">
-                        <div className="text-white font-mono text-sm">
-                          ${p.market_value.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </div>
+                        <div className="text-white font-mono text-sm">${p.market_value.toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
                         <div className={`text-xs font-mono ${p.unrealized_pl >= 0 ? "text-[#00C48C]" : "text-red-400"}`}>
                           {p.unrealized_pl >= 0 ? "+" : ""}${p.unrealized_pl.toFixed(2)} ({p.unrealized_plpc.toFixed(2)}%)
                         </div>
@@ -683,8 +607,7 @@ export default function Dashboard() {
 
             <div className="bg-[#161B22] border border-[#30363D] rounded-xl p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <CheckCircle size={16} className="text-[#00C48C]" />
-                Recent Trades
+                <CheckCircle size={16} className="text-[#00C48C]" /> Recent Trades
               </h3>
               {trades.length === 0 ? (
                 <p className="text-[#8B949E] text-sm text-center py-4">No trades yet</p>
@@ -693,22 +616,15 @@ export default function Dashboard() {
                   {trades.map(t => (
                     <div key={t.id} className="flex items-center justify-between py-2 border-b border-[#30363D] last:border-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                          t.side === "buy" ? "bg-[#00C48C]/20 text-[#00C48C]" : "bg-red-500/20 text-red-400"
-                        }`}>
+                        <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${t.side === "buy" ? "bg-[#00C48C]/20 text-[#00C48C]" : "bg-red-500/20 text-red-400"}`}>
                           {t.side?.toUpperCase()}
                         </span>
                         <span className="text-white font-mono font-semibold">{t.symbol}</span>
                         <span className="text-[#8B949E] text-xs">{t.qty} shares</span>
                       </div>
                       <div className="text-right">
-                        {t.filled_avg_price && (
-                          <div className="text-white font-mono text-sm">${t.filled_avg_price.toFixed(2)}</div>
-                        )}
-                        <div className={`text-xs ${
-                          t.status === "filled" ? "text-[#00C48C]" :
-                          t.status === "canceled" ? "text-red-400" : "text-yellow-400"
-                        }`}>
+                        {t.filled_avg_price && <div className="text-white font-mono text-sm">${t.filled_avg_price.toFixed(2)}</div>}
+                        <div className={`text-xs ${t.status === "filled" ? "text-[#00C48C]" : t.status === "canceled" ? "text-red-400" : "text-yellow-400"}`}>
                           {t.status}
                         </div>
                       </div>

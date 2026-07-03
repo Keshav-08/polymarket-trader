@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { Zap, ArrowLeft, Save, RotateCcw, CheckCircle, AlertTriangle } from "lucide-react";
 import Link from "next/link";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { apiFetch } from "@/lib/api";
 
 interface Setting {
   value: string;
@@ -35,21 +34,9 @@ const SETTING_LABELS: Record<string, { label: string; type: string; unit?: strin
 };
 
 const GROUPS = [
-  {
-    title: "Trading Engine",
-    color: "text-[#00C48C]",
-    keys: ["poll_interval_seconds", "markets_limit", "signal_threshold_pct"],
-  },
-  {
-    title: "Risk Controls",
-    color: "text-red-400",
-    keys: ["max_trade_size_usd", "max_open_positions", "cooldown_minutes"],
-  },
-  {
-    title: "Account",
-    color: "text-yellow-400",
-    keys: ["paper_trading", "notifications_enabled"],
-  },
+  { title: "Trading Engine", color: "text-[#00C48C]", keys: ["poll_interval_seconds", "markets_limit", "signal_threshold_pct"] },
+  { title: "Risk Controls", color: "text-red-400", keys: ["max_trade_size_usd", "max_open_positions", "cooldown_minutes"] },
+  { title: "Account", color: "text-yellow-400", keys: ["paper_trading", "notifications_enabled"] },
 ];
 
 export default function SettingsPage() {
@@ -63,7 +50,7 @@ export default function SettingsPage() {
 
   async function fetchSettings() {
     try {
-      const r = await fetch(`${API}/api/settings`);
+      const r = await apiFetch("/api/settings");
       if (r.ok) {
         const data = await r.json();
         setSettings(data);
@@ -84,7 +71,7 @@ export default function SettingsPage() {
     setSaving(s => ({ ...s, [key]: true }));
     setErrors(e => ({ ...e, [key]: "" }));
     try {
-      const r = await fetch(`${API}/api/settings/${key}`, {
+      const r = await apiFetch(`/api/settings/${key}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: val }),
@@ -107,7 +94,7 @@ export default function SettingsPage() {
   async function resetAll() {
     setResetting(true);
     try {
-      await fetch(`${API}/api/settings/reset`, { method: "POST" });
+      await apiFetch("/api/settings/reset", { method: "POST" });
       await fetchSettings();
     } catch {}
     finally { setResetting(false); }
@@ -130,26 +117,15 @@ export default function SettingsPage() {
       <header className="border-b border-[#30363D] px-6 py-4 sticky top-0 bg-[#0D1117]/95 backdrop-blur z-10">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#00C48C] rounded-lg flex items-center justify-center">
-              <Zap size={16} className="text-black" />
-            </div>
-            <div>
-              <h1 className="text-white font-semibold text-sm">Polymarket Trader</h1>
-              <p className="text-[#8B949E] text-xs">Settings</p>
-            </div>
+            <div className="w-8 h-8 bg-[#00C48C] rounded-lg flex items-center justify-center"><Zap size={16} className="text-black" /></div>
+            <div><h1 className="text-white font-semibold text-sm">Polymarket Trader</h1><p className="text-[#8B949E] text-xs">Settings</p></div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={resetAll}
-              disabled={resetting}
+            <button onClick={resetAll} disabled={resetting}
               className="flex items-center gap-1.5 text-[#8B949E] hover:text-white text-xs transition-colors border border-[#30363D] hover:border-red-500 px-3 py-1.5 rounded-lg">
-              <RotateCcw size={11} className={resetting ? "animate-spin" : ""} />
-              Reset to defaults
+              <RotateCcw size={11} className={resetting ? "animate-spin" : ""} />Reset to defaults
             </button>
-            <Link href="/" className="flex items-center gap-1.5 text-[#8B949E] hover:text-white text-sm transition-colors">
-              <ArrowLeft size={14} />
-              Dashboard
-            </Link>
+            <Link href="/" className="flex items-center gap-1.5 text-[#8B949E] hover:text-white text-sm transition-colors"><ArrowLeft size={14} />Dashboard</Link>
           </div>
         </div>
       </header>
@@ -157,9 +133,7 @@ export default function SettingsPage() {
       <main className="max-w-3xl mx-auto px-6 py-8">
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-white mb-1">Settings</h2>
-          <p className="text-[#8B949E] text-sm">
-            Configure the trading engine without editing code. Changes take effect on the next poll.
-          </p>
+          <p className="text-[#8B949E] text-sm">Configure the trading engine without editing code. Changes take effect on the next poll.</p>
         </div>
 
         <div className="space-y-6">
@@ -173,70 +147,45 @@ export default function SettingsPage() {
                   const meta = SETTING_LABELS[key];
                   const setting = settings?.[key as keyof Settings];
                   if (!meta || !setting) return null;
-
                   return (
                     <div key={key} className="px-5 py-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <p className="text-white text-sm font-medium">{meta.label}</p>
                           <p className="text-[#8B949E] text-xs mt-0.5">{setting.description}</p>
-                          {setting.is_default && (
-                            <p className="text-[#8B949E] text-xs mt-1 font-mono opacity-60">using default</p>
-                          )}
+                          {setting.is_default && <p className="text-[#8B949E] text-xs mt-1 font-mono opacity-60">using default</p>}
                           {errors[key] && (
                             <p className="text-red-400 text-xs mt-1 flex items-center gap-1">
                               <AlertTriangle size={10} /> {errors[key]}
                             </p>
                           )}
                         </div>
-
                         <div className="flex items-center gap-2 shrink-0">
                           {meta.type === "boolean" ? (
                             <div className="flex items-center gap-3">
-                              <span className="text-xs text-[#8B949E]">
-                                {values[key] === "true" ? "On" : "Off"}
-                              </span>
+                              <span className="text-xs text-[#8B949E]">{values[key] === "true" ? "On" : "Off"}</span>
                               <button
                                 onClick={() => {
                                   const newVal = values[key] === "true" ? "false" : "true";
                                   setValues(v => ({ ...v, [key]: newVal }));
                                   saveSetting(key, newVal);
                                 }}
-                                className={`relative w-11 h-6 rounded-full transition-colors ${
-                                  values[key] === "true" ? "bg-[#00C48C]" : "bg-[#30363D]"
-                                }`}>
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                                  values[key] === "true" ? "translate-x-5" : "translate-x-0"
-                                }`} />
+                                className={`relative w-11 h-6 rounded-full transition-colors ${values[key] === "true" ? "bg-[#00C48C]" : "bg-[#30363D]"}`}>
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${values[key] === "true" ? "translate-x-5" : "translate-x-0"}`} />
                               </button>
-                              {saved[key] && (
-                                <CheckCircle size={14} className="text-[#00C48C]" />
-                              )}
+                              {saved[key] && <CheckCircle size={14} className="text-[#00C48C]" />}
                             </div>
                           ) : (
                             <div className="flex items-center gap-2">
-                              {meta.unit && (
-                                <span className="text-[#8B949E] text-xs font-mono">{meta.unit}</span>
-                              )}
-                              <input
-                                type="number"
-                                value={values[key] || ""}
-                                onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))}
+                              {meta.unit && <span className="text-[#8B949E] text-xs font-mono">{meta.unit}</span>}
+                              <input type="number" value={values[key] || ""} onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))}
                                 onKeyDown={e => handleKeyDown(e, key)}
-                                className="w-24 bg-[#0D1117] border border-[#30363D] rounded-lg px-3 py-1.5 text-white text-sm font-mono text-right focus:outline-none focus:border-[#00C48C]"
-                              />
-                              <button
-                                onClick={() => saveSetting(key)}
-                                disabled={saving[key]}
+                                className="w-24 bg-[#0D1117] border border-[#30363D] rounded-lg px-3 py-1.5 text-white text-sm font-mono text-right focus:outline-none focus:border-[#00C48C]" />
+                              <button onClick={() => saveSetting(key)} disabled={saving[key]}
                                 className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${
-                                  saved[key]
-                                    ? "bg-[#00C48C]/20 text-[#00C48C] border border-[#00C48C]/30"
-                                    : "bg-[#00C48C] hover:bg-[#00a876] text-black border border-transparent"
+                                  saved[key] ? "bg-[#00C48C]/20 text-[#00C48C] border border-[#00C48C]/30" : "bg-[#00C48C] hover:bg-[#00a876] text-black border border-transparent"
                                 } disabled:opacity-50`}>
-                                {saved[key]
-                                  ? <><CheckCircle size={11} /> Saved</>
-                                  : <><Save size={11} /> {saving[key] ? "..." : "Save"}</>
-                                }
+                                {saved[key] ? <><CheckCircle size={11} /> Saved</> : <><Save size={11} /> {saving[key] ? "..." : "Save"}</>}
                               </button>
                             </div>
                           )}
