@@ -8,8 +8,8 @@ app = FastAPI(title="Polymarket Trader API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["https://polymarket-trader-pied.vercel.app"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -20,11 +20,9 @@ def on_startup():
     create_users_table()
     print("✅ Database tables ready")
 
-# Public routes
 app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(health.router, prefix="/api", tags=["health"])
 
-# Protected routes
 protected = {"dependencies": [Depends(get_current_user)]}
 app.include_router(markets.router, prefix="/api", tags=["markets"], **protected)
 app.include_router(portfolio.router, prefix="/api", tags=["portfolio"], **protected)
