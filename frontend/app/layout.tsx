@@ -1,21 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import "./globals.css";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = "https://polymarket-trader-backend.onrender.com";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     if (pathname === "/login") return;
     const token = localStorage.getItem("token");
     if (!token) { router.push("/login"); return; }
 
-    // Verify token is still valid
     fetch(`${API}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => {
@@ -24,10 +25,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         localStorage.removeItem("username");
         router.push("/login");
       }
-    }).catch(() => {
-      // If backend unreachable, don't log out — just let it be
-    });
+    }).catch(() => {});
   }, [pathname]);
+
+  if (!mounted) return (
+    <html lang="en">
+      <body style={{ background: "#0D1117" }} />
+    </html>
+  );
 
   return (
     <html lang="en">
